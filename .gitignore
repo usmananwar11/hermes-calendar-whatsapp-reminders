@@ -1,0 +1,28 @@
+# Runtime secrets and personal configuration: never publish these.
+.env
+.env.*
+*.pem
+*.key
+*client_secret*.json
+*client-secret*.json
+google_token*.json
+token.json
+tokens.json
+credentials*.json
+auth.json
+calendar_reminder_settings.json
+calendar_reminder_state*
+# Local environments, build products and editor/OS files.
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+htmlcov/
+*.egg-info/
+build/
+dist/
+.DS_Store
+.idea/
+.vscode/

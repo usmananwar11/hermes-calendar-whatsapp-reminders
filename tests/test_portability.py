@@ -19,7 +19,9 @@ def load(name):
     return module
 
 
-class PortableTests(unittest.TestCase):
+from offline_safety import OfflineTestCase
+
+class PortableTests(OfflineTestCase, unittest.TestCase):
     def test_runtime_home_precedence_and_dynamic_token_path(self):
         for name in ('personal_calendar', 'google_calendar_reminders'):
             module = load(name)
@@ -121,6 +123,24 @@ class PortableTests(unittest.TestCase):
         now = datetime(2030, 1, 1, 10, 0, tzinfo=timezone.utc)
         event = {'id':'example', 'start':{'dateTime':(now+timedelta(minutes=15)).isoformat()}}
         self.assertIn('10:15 AM (UTC)', module.reminder_text(event, now))
+
+    def test_receipt_requires_boolean_success_and_nonempty_string_id(self):
+        import subprocess
+        from datetime import datetime, timedelta, timezone
+        module = load('google_calendar_reminders')
+        now = datetime(2030, 1, 1, tzinfo=timezone.utc)
+        event = {'id':'example', 'start':{'dateTime':(now+timedelta(minutes=1)).isoformat()}}
+        receipts = [{'success':'false','message_id':'fake-id'}, {'success':True,'message_id':42},
+                    {'success':True,'message_id':' '}, [], {'success':False,'message_id':'fake-id'}]
+        for receipt in receipts:
+            state = {}
+            runner = Mock(return_value=subprocess.CompletedProcess([],0,json.dumps(receipt),''))
+            with self.subTest(receipt=receipt):
+                with self.assertRaises(RuntimeError):
+                    module.send_message('example', 'whatsapp:example-recipient', 'hermes', runner=runner)
+                with self.assertRaises(RuntimeError):
+                    module.deliver_due([event], now, state, lambda _:receipt)
+                self.assertEqual(state, {})
 
 
 if __name__ == '__main__':

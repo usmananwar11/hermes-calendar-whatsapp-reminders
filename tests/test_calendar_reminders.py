@@ -3,12 +3,14 @@ import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-SCRIPT = Path('/Users/usmananwar/.hermes/scripts/google_calendar_reminders.py')
+SCRIPT = Path(__file__).resolve().parents[1] / 'scripts' / 'google_calendar_reminders.py'
 
 def event(event_id, start, **extra):
     return {'id':event_id, 'summary':'Call', 'start':{'dateTime':start.isoformat()}, **extra}
 
-class ReminderTests(unittest.TestCase):
+from offline_safety import OfflineTestCase
+
+class ReminderTests(OfflineTestCase, unittest.TestCase):
     def load_module(self):
         self.assertTrue(SCRIPT.exists(), 'Calendar reminder implementation does not exist yet')
         spec = importlib.util.spec_from_file_location('google_calendar_reminders', SCRIPT)
@@ -104,7 +106,7 @@ class ReminderTests(unittest.TestCase):
             service = Mock()
             service.events.return_value.list.return_value.execute.return_value = {'items':[]}
             output = io.StringIO()
-            with patch.dict(os.environ, {'HERMES_HOME':folder}), patch.object(m, 'calendar_service', return_value=service), patch.object(m, 'send_message') as send, redirect_stdout(output):
+            with patch.dict(os.environ, {'HERMES_HOME':folder, 'CALENDAR_REMINDERS_HOME':folder}), patch.object(m, 'calendar_service', return_value=service), patch.object(m, 'send_message') as send, redirect_stdout(output):
                 m.main(['--dry-run'])
             self.assertFalse(send.called)
             self.assertFalse((home/'calendar_reminder_state.json').exists())

@@ -1,0 +1,7 @@
+# Python >=3.10 on Linux/macOS. Resolve in your own virtual environment.
+google-api-python-client
+google-auth
+google-auth-oauthlib
+google-auth-httplib2
+httplib2
+tzdata

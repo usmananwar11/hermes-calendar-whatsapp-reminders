@@ -25,7 +25,9 @@ def load():
     spec.loader.exec_module(module)
     return module
 
-class CalendarTests(unittest.TestCase):
+from offline_safety import OfflineTestCase
+
+class CalendarTests(OfflineTestCase, unittest.TestCase):
     def test_create_body_and_idempotency(self):
         m = load()
         self.assertTrue(hasattr(m, 'build_create'), 'create builder missing')

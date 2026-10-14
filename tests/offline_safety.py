@@ -13,7 +13,9 @@ class OfflineTestCase:
         folder = tempfile.TemporaryDirectory()
         self.addCleanup(folder.cleanup)
         home = Path(folder.name)
-        self.enterContext(patch.dict(os.environ, {'CALENDAR_REMINDERS_HOME':str(home),
-                                                  'HERMES_HOME':str(home)}))
-        self.enterContext(patch.object(socket, 'socket', side_effect=AssertionError('Tests prohibit network sockets')))
-        self.enterContext(patch.object(subprocess, 'Popen', side_effect=AssertionError('Tests prohibit external subprocesses')))
+        guards = [patch.dict(os.environ, {'CALENDAR_REMINDERS_HOME':str(home), 'HERMES_HOME':str(home)}),
+                  patch.object(socket, 'socket', side_effect=AssertionError('Tests prohibit network sockets')),
+                  patch.object(subprocess, 'Popen', side_effect=AssertionError('Tests prohibit external subprocesses'))]
+        for guard in guards:
+            guard.start()
+            self.addCleanup(guard.stop)

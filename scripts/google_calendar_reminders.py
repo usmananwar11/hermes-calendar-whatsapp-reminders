@@ -38,7 +38,8 @@ def send_message(text, target, hermes, runner=subprocess.run):
         receipt = json.loads(result.stdout)
     except ValueError:
         raise RuntimeError('WhatsApp reminder send returned no structured receipt') from None
-    if not receipt.get('success') or not receipt.get('message_id'):
+    if (not isinstance(receipt, dict) or receipt.get('success') is not True
+                or not isinstance(receipt.get('message_id'), str) or not receipt['message_id'].strip()):
         raise RuntimeError('WhatsApp reminder send returned no successful message receipt')
     return receipt
 
@@ -98,7 +99,8 @@ def deliver_due(events, now, state, sender, persist=None, lead_minutes=15, zone=
         if key in state:
             continue
         receipt = sender(reminder_text(event, now, zone))
-        if not receipt.get('success') or not receipt.get('message_id'):
+        if (not isinstance(receipt, dict) or receipt.get('success') is not True
+                or not isinstance(receipt.get('message_id'), str) or not receipt['message_id'].strip()):
             raise RuntimeError('WhatsApp did not acknowledge reminder delivery; reminder remains pending')
         state[key] = {'delivered_at':now.isoformat(), 'message_id':receipt['message_id']}
         if persist:
