@@ -1,9 +1,9 @@
 ---
 name: google-calendar-whatsapp-reminders
 description: Send Google Calendar reminders through WhatsApp.
-version: 0.1.0
+version: 0.2.0
 author: Muhammad Usman Anwar, Hermes Agent
-license: UNLICENSED
+license: MIT
 platforms: [linux, macos]
 metadata:
   hermes:
@@ -13,7 +13,7 @@ metadata:
 
 # Google Calendar WhatsApp Reminders
 
-Poll upcoming timed Google Calendar events and send reminders with Hermes' existing WhatsApp transport, without an LLM per scan. The accompanying Calendar CLI can also manage events after explicit user approval. Installation, OAuth, scheduling and real delivery are separate opt-in steps; packaging or testing must not perform them.
+Use the native plugin CLI to send advance Google Calendar reminders through Hermes' existing WhatsApp transport, without an LLM per scan. Calendar event mutations remain explicitly confirmed. Installation and registration never authorize Google, configure a route, schedule jobs or send messages.
 
 ## When to Use
 
@@ -23,38 +23,42 @@ Poll upcoming timed Google Calendar events and send reminders with Hermes' exist
 
 ## Prerequisites
 
-- Python 3.10+, Linux/macOS (the watcher uses Unix `fcntl` locking).
-- Install `requirements.txt` into a user-managed virtual environment.
+- Hermes 0.21.6+, Linux/macOS (the watcher uses Unix `fcntl` locking).
+- Install and enable the `calendar-whatsapp-reminders` plugin, consenting to its declared Python dependencies. Do not create a separate environment for normal plugin use.
 - An operational Hermes WhatsApp transport and a destination supplied and approved by the user; never infer a destination from an unrelated chat.
 - A Google Desktop OAuth application with Calendar API enabled. Keep client JSON and tokens outside this skill repository. Request Calendar-only access; this package's scope also permits explicitly approved event mutations.
 - Read `README.md` for setup, path precedence, transport receipts, and scheduler integration.
 
 ## How to Run
 
-Use the `terminal` tool from the skill directory. The paths below assume a local `.venv`; use its absolute interpreter path for scheduled execution.
+Use the `terminal` tool; no repository working directory is required. `setup` writes only local settings and prompts for an explicitly approved route. `connect` opens the browser only when invoked deliberately.
 
 ```python
-terminal(command=".venv/bin/python scripts/connect_google_calendar.py --home '<runtime-home>'")
-terminal(command=".venv/bin/python scripts/personal_calendar.py --home '<runtime-home>' status")
-terminal(command=".venv/bin/python scripts/google_calendar_reminders.py --home '<runtime-home>' --settings '<settings-json>' --dry-run")
+terminal(command="hermes calendar-reminders setup")
+terminal(command="hermes calendar-reminders connect --client-secret '<desktop-client-json>'")
+terminal(command="hermes calendar-reminders status --live")
+terminal(command="hermes calendar-reminders scan --dry-run")
 ```
 
-These commands access live Calendar and may refresh credentials. The OAuth command opens a browser. Do not run them merely to verify the package.
+Only `setup` is local-only in this example. Live status and dry-run access Google and may refresh credentials. Do not connect or scan merely to verify the package. Paths supplied in terminal commands must be shell-quoted, never interpolated unescaped from event text.
 
 ## Quick Reference
 
-- Runtime home: `--home`, then `CALENDAR_REMINDERS_HOME`, then `HERMES_HOME`, then `~/.local/share/hermes-calendar-reminders`.
-- Watcher settings: `--settings`, then `<runtime-home>/calendar_reminder_settings.json`, with legacy `<runtime-home>/scripts/calendar_reminder_settings.json` fallback.
-- Calendar CLI: `status`, `calendars`, `list`, `get EVENT_ID`; mutations `create`, `update`, `delete` require `--confirm` after user approval. Global `--home` and `--token` precede the subcommand.
-- Offline verification via `terminal(command=".venv/bin/python -m unittest discover -s tests -v")`. No credentials required.
+- Plugin home: `<active-profile>/plugin-data/calendar-whatsapp-reminders`; override with `hermes calendar-reminders --home PATH <command>`. The plugin ignores `CALENDAR_REMINDERS_HOME` and never silently adopts legacy profile credentials.
+- Local status: `hermes calendar-reminders status`; live Calendar readback: add `--live`.
+- Single scan: `hermes calendar-reminders scan --dry-run`; sending requires `scan --confirm` after user approval.
+- Scheduling: `schedule --confirm` and `unschedule --confirm` under the same CLI. Commands verify the saved native job; scheduling never runs an immediate scan.
+- Calendar CLI: `hermes calendar-reminders calendar list`, `calendar get EVENT_ID`; mutations `calendar create`, `calendar update`, `calendar delete` retain their original `--confirm` guards and create request-ID requirement.
+- Legacy migration: `migrate --from-home PATH --confirm`; nonempty unbound history also requires `--bind-legacy-route` after verifying the original route and Google account.
+- Offline repository tests: `terminal(command="hermes --run-module unittest discover -s tests -v")` with declared dependencies available; no credentials required. Standalone script path precedence remains documented separately.
 
 ## Procedure
 
-1. Confirm approved runtime home, timezone, lead time (integer 1–1440), calendar and WhatsApp destination. Copy the example outside the repository and fill the empty target; completion means settings validate before any credential access.
-2. With explicit OAuth approval, run the connection helper. The user approves in a browser, never shares codes or tokens in chat. Completion means `CALENDAR_CONNECTED` after exact Calendar-ID readback and private atomic token saving.
+1. Confirm approved profile/runtime home, timezone, lead time (integer 1–1440), calendar and WhatsApp destination. Run plugin `setup`; completion means private settings validate without any credential access or sends. Replacing settings requires `--replace` and cannot silently relabel delivery history.
+2. With explicit OAuth approval, run plugin `connect` with the user's Desktop OAuth client path. The user approves in a browser, never shares codes or tokens in chat. Completion means `CALENDAR_CONNECTED` after exact Calendar-ID readback and private atomic token saving.
 3. With approval for a live read, run `status` and the watcher `--dry-run`. Completion means the intended Calendar and pending count are checked; no delivery state is marked by dry-run.
-4. Only after delivery approval, run the watcher without `--dry-run`. Completion means a successful structured Hermes message receipt exists before recording each reminder. Never treat exit code alone as delivery evidence.
-5. With scheduling approval, follow README to create a wrapper inside the active profile's scripts directory. Use native `cronjob` scheduling with `schedule="every 1m"`, `script="calendar-reminders.sh"`, `no_agent=True`, `deliver="local"`; read the job back to verify all fields. Do not route cron stdout to WhatsApp as the script already sends reminders.
+4. Only after delivery approval, run `scan --confirm`. Completion means a successful structured Hermes message receipt exists before recording each reminder. Never treat exit code alone as delivery evidence.
+5. With scheduling approval, run `schedule --confirm`. The plugin writes a profile-pinned wrapper and creates a native every-minute, `no_agent=True` job with success/failure output local; it verifies the exact saved job. Keep the scheduler running. Do not schedule an additional duplicate watcher or route stdout to WhatsApp.
 6. Report the installed paths, job ID if created, actual checks, and unresolved limitations without exposing credential contents or personal identifiers unnecessarily.
 
 ## Pitfalls
@@ -63,10 +67,10 @@ These commands access live Calendar and may refresh credentials. The OAuth comma
 - Dry-run can refresh OAuth and creates the lock/runtime directory, but neither sends nor marks reminders delivered.
 - All-day, cancelled, self-declined and already-started events are excluded; downtime can miss reminders entirely.
 - Locking and persisted event-ID/start-time keys avoid ordinary local duplicates. A crash after send but before state save can duplicate a message: delivery is at-least-once-style retry, not exactly-once.
-- Reuse one runtime home per destination/calendar. Changing routing while retaining state can suppress reminders at the new destination.
+- Reuse one runtime home per destination/calendar/Google account. State binds the configured calendar and target and rejects changes; use a separate home for a new route. The `primary` alias cannot detect an account change. Nonempty legacy state without routing requires the explicitly verified migration in README; never guess its original route or delete history to bypass the check.
 - Refresh credentials or verify readback before retrying uncertain mutations. Do not blindly replay writes or invitations.
 - External Google apps in Testing typically have seven-day refresh tokens for Calendar scopes; reconnect when required. A failed scan is not a successful reminder.
-- License choice is pending human review; no redistribution permission is asserted by this package.
+- This package is licensed under MIT; retain the copyright and permission notice when redistributing it.
 
 ## Verification
 

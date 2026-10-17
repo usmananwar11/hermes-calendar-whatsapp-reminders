@@ -142,6 +142,37 @@ class CalendarTests(OfflineTestCase, unittest.TestCase):
             m.run(m.parse_args(['update','abcde','--end','2026-10-10T11:00:00+05:00','--confirm']), service)
         service.events.return_value.patch.assert_not_called()
 
+    def test_all_day_conversion_clears_dates_before_timed_patch(self):
+        m = load()
+        old = {'id':'abcde', 'summary':'Call', 'etag':'"v1"',
+               'start':{'date':'2026-10-10'}, 'end':{'date':'2026-10-11'}}
+        args = ['update','abcde','--confirm','--start','2026-10-10T12:00:00Z',
+                '--end','2026-10-10T13:00:00Z']
+        service = Mock()
+        stored = copy.deepcopy(old)
+        service.events.return_value.patch.return_value.headers = {}
+        service.events.return_value.get.return_value.execute.side_effect = lambda **kw:copy.deepcopy(stored)
+        def apply_patch(**kw):
+            body = service.events.return_value.patch.call_args.kwargs['body']
+            for field in ('start', 'end'):
+                for key, value in body[field].items():
+                    if value is None:
+                        stored[field].pop(key, None)
+                    else:
+                        stored[field][key] = value
+                self.assertNotIn('date', stored[field], 'PATCH must remove the old all-day date')
+        service.events.return_value.patch.return_value.execute.side_effect = apply_patch
+        result = m.run(m.parse_args(args), service)
+        self.assertTrue(result['verified'])
+        for field in ('start', 'end'):
+            self.assertIsNone(service.events.return_value.patch.call_args.kwargs['body'][field]['date'])
+        for endpoint, value in [('start','2026-10-10T12:00:00Z'), ('end','2026-10-10T13:00:00Z')]:
+            service = Mock()
+            service.events.return_value.get.return_value.execute.return_value = copy.deepcopy(old)
+            with self.subTest(endpoint=endpoint), self.assertRaises(ValueError):
+                m.run(m.parse_args(['update','abcde','--confirm','--'+endpoint,value]), service)
+            service.events.return_value.patch.assert_not_called()
+
     def test_delete_verified_cancelled_or_missing(self):
         m = load()
         args = m.parse_args(['delete','abcde','--confirm'])
@@ -281,6 +312,19 @@ class CalendarTests(OfflineTestCase, unittest.TestCase):
         result = m.verified_result(service, 'primary', 'abcde', expected, 'created', 0)
         self.assertEqual(result['meet']['status'], 'missing')
         self.assertIsNone(result['meet']['joinLink'])
+
+    def test_invalid_offset_components_fail_before_connection(self):
+        m = load()
+        for offset in ('+05:60', '+05:99', '-00:99', '+24:00'):
+            value = '2026-10-10T12:00:00'+offset
+            with self.subTest(offset=offset):
+                with self.assertRaises(ValueError):
+                    m.parse_datetime(value)
+                with patch.object(m, 'connect') as connect, contextlib.redirect_stderr(io.StringIO()):
+                    with self.assertRaises(SystemExit):
+                        m.main(['list','--start',value,'--end','2026-10-11T12:00:00Z'])
+                    connect.assert_not_called()
+        self.assertEqual(m.parse_datetime('2026-10-10T12:00:00+05:59').utcoffset().seconds, 21540)
 
     def test_offset_datetime_validation(self):
         m = load()

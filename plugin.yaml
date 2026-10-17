@@ -1,0 +1,20 @@
+name: calendar-whatsapp-reminders
+version: 0.2.0
+description: Google Calendar reminders through an existing Hermes WhatsApp connection.
+author: Muhammad Usman Anwar
+license: MIT
+homepage: https://github.com/usmananwar11/hermes-calendar-whatsapp-reminders
+kind: standalone
+requires_hermes: ">=0.21.6"
+platforms: [linux, macos]
+tags: [calendar, whatsapp, reminders, scheduling]
+provides_tools: []
+provides_hooks: []
+requires_env: []
+python_dependencies:
+  - "google-api-python-client>=2.160,<3"
+  - "google-auth>=2.40,<3"
+  - "google-auth-oauthlib>=1.2,<2"
+  - "google-auth-httplib2>=0.2,<1"
+  - "httplib2>=0.22,<1"
+  - "tzdata>=2025,<2028"

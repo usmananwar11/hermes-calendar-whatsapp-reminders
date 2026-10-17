@@ -92,17 +92,20 @@ def reminder_text(event, now, zone='UTC'):
     return message
 
 
-def deliver_due(events, now, state, sender, persist=None, lead_minutes=15, zone='UTC'):
+def deliver_due(events, now, state, sender, persist=None, lead_minutes=15, zone='UTC', clock=None):
     sent = 0
     for event in due_events(events, now, lead_minutes):
         key = reminder_key(event)
         if key in state:
             continue
-        receipt = sender(reminder_text(event, now, zone))
+        delivery_now = clock() if clock else now
+        if not due_events([event], delivery_now, lead_minutes):
+            continue
+        receipt = sender(reminder_text(event, delivery_now, zone))
         if (not isinstance(receipt, dict) or receipt.get('success') is not True
                 or not isinstance(receipt.get('message_id'), str) or not receipt['message_id'].strip()):
             raise RuntimeError('WhatsApp did not acknowledge reminder delivery; reminder remains pending')
-        state[key] = {'delivered_at':now.isoformat(), 'message_id':receipt['message_id']}
+        state[key] = {'delivered_at':delivery_now.isoformat(), 'message_id':receipt['message_id']}
         if persist:
             persist(state)
         sent += 1
@@ -210,8 +213,15 @@ def main(argv=None):
         state_path = home/'calendar_reminder_state.json'
         document = json.loads(state_path.read_text()) if state_path.exists() else {'version':1, 'sent':{}}
         state = document['sent']
+        routing = {'calendar_id':settings['calendar_id'], 'target':settings['target']}
+        if state and 'routing' not in document:
+            raise ValueError('Legacy reminder state requires an explicitly verified routing binding; see README')
+        if document.get('routing', routing) != routing:
+            raise ValueError('Reminder state belongs to another calendar or destination; use a separate runtime home')
+        document['routing'] = routing
         service = calendar_service(home)
         events = list_upcoming(service, settings['calendar_id'], now, lead)
+        now = datetime.now(timezone.utc)
         due = due_events(events, now, lead)
         if args.dry_run:
             print(json.dumps({'dry_run':True, 'scanned':len(events), 'due':len(due),
@@ -224,7 +234,8 @@ def main(argv=None):
             write_private_json(state_path, document)
         count = deliver_due(events, now, state,
             lambda text:send_message(text, settings['target'], settings['hermes']),
-            persist=persist, lead_minutes=lead, zone=settings['timezone'])
+            persist=persist, lead_minutes=lead, zone=settings['timezone'],
+            clock=lambda:datetime.now(timezone.utc))
         cutoff = now-timedelta(days=30)
         document['sent'] = {key:value for key,value in state.items()
                             if datetime.fromisoformat(value['delivered_at']) > cutoff}

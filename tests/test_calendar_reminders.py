@@ -54,6 +54,27 @@ class ReminderTests(OfflineTestCase, unittest.TestCase):
             m.deliver_due([e], now, failed_state, lambda _: {'success':False})
         self.assertEqual(failed_state, {})
 
+    def test_delivery_rechecks_clock_before_each_send(self):
+        m = self.load_module()
+        now = datetime(2026,10,10,10,0,tzinfo=timezone.utc)
+        current = now + timedelta(seconds=20)
+        events = [event('first', now+timedelta(seconds=30)),
+                  event('expired', now+timedelta(seconds=30)),
+                  event('later', now+timedelta(minutes=3))]
+        messages, state = [], {}
+        def sender(text):
+            nonlocal current
+            messages.append(text)
+            current += timedelta(seconds=40)
+            return {'success':True, 'message_id':'test-receipt'}
+        count = m.deliver_due(events, now, state, sender, clock=lambda:current)
+        self.assertEqual(count, 2)
+        self.assertEqual(len(messages), 2)
+        self.assertIn('starts in 2 minutes', messages[1])
+        self.assertNotIn(m.reminder_key(events[1]), state)
+        self.assertEqual(state[m.reminder_key(events[2])]['delivered_at'],
+                         (now+timedelta(minutes=1)).isoformat())
+
     def test_calendar_scan_reads_all_pages_with_time_bounds(self):
         from unittest.mock import Mock
         m = self.load_module()
@@ -111,6 +132,54 @@ class ReminderTests(OfflineTestCase, unittest.TestCase):
             self.assertFalse(send.called)
             self.assertFalse((home/'calendar_reminder_state.json').exists())
             self.assertTrue(json.loads(output.getvalue())['dry_run'])
+
+    def test_state_routing_changes_fail_before_auth_or_delivery(self):
+        import io, json, tempfile
+        from contextlib import redirect_stdout
+        from unittest.mock import Mock, patch
+        m = self.load_module()
+        settings = {'calendar_id':'primary', 'lead_minutes':15, 'timezone':'UTC',
+                    'target':'whatsapp:example-recipient', 'hermes':'hermes'}
+        with tempfile.TemporaryDirectory() as folder:
+            home = Path(folder)
+            config = home/'calendar_reminder_settings.json'
+            config.write_text(json.dumps(settings))
+            service = Mock()
+            service.events.return_value.list.return_value.execute.return_value = {'items':[]}
+            with patch.object(m, 'calendar_service', return_value=service), redirect_stdout(io.StringIO()):
+                m.main(['--home',folder])
+            state_path = home/'calendar_reminder_state.json'
+            original = state_path.read_text()
+            self.assertEqual(json.loads(original)['routing'],
+                             {'calendar_id':settings['calendar_id'], 'target':settings['target']})
+            for change in ({'calendar_id':'another-calendar'}, {'target':'whatsapp:another-recipient'}):
+                config.write_text(json.dumps(dict(settings, **change)))
+                with self.subTest(change=change), patch.object(m, 'calendar_service') as auth, patch.object(m, 'send_message') as send:
+                    with self.assertRaises(ValueError):
+                        m.main(['--home',folder])
+                    auth.assert_not_called()
+                    send.assert_not_called()
+                    self.assertEqual(state_path.read_text(), original)
+
+    def test_nonempty_legacy_state_requires_explicit_route_binding(self):
+        import json, tempfile
+        from unittest.mock import patch
+        m = self.load_module()
+        with tempfile.TemporaryDirectory() as folder:
+            home = Path(folder)
+            (home/'calendar_reminder_settings.json').write_text(json.dumps({
+                'calendar_id':'primary', 'lead_minutes':15, 'timezone':'UTC',
+                'target':'whatsapp:example-recipient', 'hermes':'hermes'}))
+            state_path = home/'calendar_reminder_state.json'
+            original = json.dumps({'version':1, 'sent':{'legacy-key':{
+                'delivered_at':'2026-10-10T10:00:00+00:00', 'message_id':'test-receipt'}}})
+            state_path.write_text(original)
+            with patch.object(m, 'calendar_service', side_effect=AssertionError('Legacy state must fail before auth')) as auth, patch.object(m, 'send_message') as send:
+                with self.assertRaisesRegex(ValueError, 'Legacy'):
+                    m.main(['--home',folder,'--dry-run'])
+                auth.assert_not_called()
+                send.assert_not_called()
+            self.assertEqual(state_path.read_text(), original)
 
     def test_refresh_retries_connection_reset_with_bounded_transport(self):
         import json, tempfile

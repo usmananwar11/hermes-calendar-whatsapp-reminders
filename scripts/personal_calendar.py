@@ -172,6 +172,8 @@ def run(args, service, poll_delay=1):
             if value is not None:
                 parse_datetime(value)
                 patch[field] = {'dateTime': value}
+                if old.get(field, {}).get('date'):
+                    patch[field]['date'] = None
         if args.attendees is not None:
             patch['attendees'] = attendees_body(args.attendees)
         if args.meet:
@@ -314,7 +316,7 @@ def build_create(*, summary, start, end, request_id, event_id=None,
 
 
 def parse_datetime(value):
-    if not re.fullmatch(r'\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})', value):
+    if not re.fullmatch(r'\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-](?:[01]\d|2[0-3]):[0-5]\d)', value):
         raise ValueError('Datetime must be ISO/RFC3339 with seconds and explicit offset or Z')
     result = datetime.fromisoformat(value.replace('Z', '+00:00'))
     if result.utcoffset() is None:
